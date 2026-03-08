@@ -20,14 +20,10 @@ https://community.cisco.com/kxiwq67737/attachments/kxiwq67737/5041-docs-security
 
 Cisco Secure Access がないので、一旦テスト用にvmdkファイルを作る
 
-まずは適当なrawファイルをダウンロードする　→　https://download.cirros-cloud.net/0.6.3/
+まずは適当なrawファイルをダウンロードする　→　https://cloud-images.ubuntu.com/jammy/current/
 
-<img width="787" height="719" alt="image" src="https://github.com/user-attachments/assets/eda8ead0-df1d-4ce3-9fa4-72f19a569b80" />
+<img width="1294" height="300" alt="image" src="https://github.com/user-attachments/assets/588987b8-8c19-4a7e-8c76-c7a97e426fbb" />
 
-それをローカルでvmdkに変換する
-```
-qemu-img convert -f raw cirros-0.6.3-x86_64-disk.img -O vmdk -o subformat=streamOptimized test.vmdk
-```
 
 # ②-2 イメージをS3に格納
 
@@ -41,7 +37,8 @@ qemu-img convert -f raw cirros-0.6.3-x86_64-disk.img -O vmdk -o subformat=stream
 
 バケットができたら、vmdkをアップロードする
 
-<img width="1742" height="860" alt="image" src="https://github.com/user-attachments/assets/8dd6cbb7-8c87-47d6-815b-d3cb0e958013" />
+<img width="1057" height="536" alt="image" src="https://github.com/user-attachments/assets/c73a4fcd-086b-4c62-8f24-da5c06a56de4" />
+
 
 # ②-3 VMインポートするためのIAMロール作成
 
@@ -160,6 +157,7 @@ aws iam put-role-policy --role-name vmimport --policy-name vmimport --policy-doc
 
 <img width="1065" height="696" alt="image" src="https://github.com/user-attachments/assets/799bb1ec-66d8-44a7-af1e-ea56af30b0eb" />
 
+### AMI作成
 
 ```
 cat << 'EOF' > containers.json
@@ -169,7 +167,7 @@ cat << 'EOF' > containers.json
     "Format": "vmdk",
     "UserBucket": {
         "S3Bucket": "pkthom-test",
-        "S3Key": "test.vmdk"
+        "S3Key": "jammy-server-cloudimg-amd64.vmdk"
     }
   }
 ]
@@ -182,22 +180,22 @@ aws ec2 import-image --description "test" --disk-containers "file://containers.j
 
 うまくいったのか　ステータス確認　→ 変換中、、、
 ```
-ubuntu@test1:~$ aws ec2 describe-import-image-tasks --import-task-ids import-ami-a2a70d6f57977ef1t
+ubuntu@test1:~$ aws ec2 describe-import-image-tasks --import-task-ids import-ami-54be2e9c40116f35t
 {
     "ImportImageTasks": [
         {
             "Description": "test",
             "ImageId": "",
-            "ImportTaskId": "import-ami-a2a70d6f57977ef1t",
+            "ImportTaskId": "import-ami-54be2e9c40116f35t",
             "Progress": "9",
             "SnapshotDetails": [
                 {
-                    "DiskImageSize": 21345280.0,
+                    "DiskImageSize": 671000576.0,
                     "Format": "VMDK",
                     "Status": "active",
                     "UserBucket": {
                         "S3Bucket": "pkthom-test",
-                        "S3Key": "test.vmdk"
+                        "S3Key": "jammy-server-cloudimg-amd64.vmdk"
                     }
                 }
             ],
