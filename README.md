@@ -6,15 +6,12 @@ https://community.cisco.com/kxiwq67737/attachments/kxiwq67737/5041-docs-security
 
 # 目次
 
-- [テスト用vmdkを用意する]()
-- [vmdkをS3にアップロードする]()
-- [AMIを作る]()
-- [IAMユーザーを作る]()
-- [IAMロール・ポリシーを作る]()
-- []()
-- []()
-- []()
-- []()
+- [②-1 Resource Connectorイメージのダウンロード]()
+- [②-2 イメージをS3に格納]()
+- [②-3 VMインポートするためのIAMロール作成]()
+- [②-4 VMインポート/AMI作成]()
+- [②-5 AMIからインスタンス起動]()
+
 
 # ②-1 Resource Connectorイメージのダウンロード
 
@@ -157,7 +154,7 @@ aws iam put-role-policy --role-name vmimport --policy-name vmimport --policy-doc
 
 <img width="1065" height="696" alt="image" src="https://github.com/user-attachments/assets/799bb1ec-66d8-44a7-af1e-ea56af30b0eb" />
 
-### AMI作成
+# ②-4 VMインポート/AMI作成
 
 ```
 cat << 'EOF' > containers.json
@@ -206,4 +203,77 @@ ubuntu@test1:~$ aws ec2 describe-import-image-tasks --import-task-ids import-ami
     ]
 }
 ubuntu@test1:~$ 
+```
+
+completed
+```
+ubuntu@test1:~$ aws ec2 describe-import-image-tasks --import-task-ids import-ami-54be2e9c40116f35t
+{
+    "ImportImageTasks": [
+        {
+            "Architecture": "x86_64",
+            "Description": "test",
+            "ImageId": "ami-0a8c283c9a238f8a7",
+            "ImportTaskId": "import-ami-54be2e9c40116f35t",
+            "LicenseType": "BYOL",
+            "Platform": "Linux",
+            "SnapshotDetails": [
+                {
+                    "DeviceName": "/dev/sda1",
+                    "DiskImageSize": 671000576.0,
+                    "Format": "VMDK",
+                    "SnapshotId": "snap-0e181020e22608625",
+                    "Status": "completed",
+                    "UserBucket": {
+                        "S3Bucket": "pkthom-test",
+                        "S3Key": "jammy-server-cloudimg-amd64.vmdk"
+                    }
+                }
+            ],
+            "Status": "completed",
+            "Tags": []
+        }
+    ]
+}
+ubuntu@test1:~$ 
+
+```
+
+AMI ができた
+
+<img width="1811" height="605" alt="image" src="https://github.com/user-attachments/assets/a9d38b89-b975-4689-972e-32aebe45639f" />
+
+# ②-5 AMIからインスタンス起動
+
+「AMIからインスタンス起動」をクリック
+
+<img width="1809" height="566" alt="image" src="https://github.com/user-attachments/assets/a9bf6af1-eea7-4051-9e56-855f22bd2638" />
+
+諸設定は　以下の通り
+```
+名前 -> 適当につける
+
+キーペア　-> 無ければ「新しいキーペアの作成」
+
+パブリック IP の自動割り当て -> 有効化
+
+セキュリティグループ -> 「「自分のIP」からのSSHトラフィックを許可」 
+
+あとは全部デフォルト
+```
+→ 「インスタンスを起動」
+
+インスタンスできた
+
+<img width="1618" height="289" alt="image" src="https://github.com/user-attachments/assets/fe606d20-7215-4080-b19d-d8b9fafc0280" />
+
+できたインスタンスに、SSHしてみる
+
+```
+chmod 400 Downloads/aws.pem
+ssh ubuntu@<<PUBLIC_IP>> -i Downloads/aws.pem
+```
+SSHできた
+```
+ubuntu@ip-172-31-0-137:~$ 
 ```
