@@ -12,6 +12,12 @@ https://community.cisco.com/kxiwq67737/attachments/kxiwq67737/5041-docs-security
 - [②-4 VMインポート/AMI作成](https://github.com/pkthom/vmdk-to-ec2instance/blob/main/README.md#-4-vm%E3%82%A4%E3%83%B3%E3%83%9D%E3%83%BC%E3%83%88ami%E4%BD%9C%E6%88%90)
 - [②-5 AMIからインスタンス起動](https://github.com/pkthom/vmdk-to-ec2instance/blob/main/README.md#-5-ami%E3%81%8B%E3%82%89%E3%82%A4%E3%83%B3%E3%82%B9%E3%82%BF%E3%83%B3%E3%82%B9%E8%B5%B7%E5%8B%95)
 
+### おまけ（EC2インスタンスをDNATサーバーにする）
+
+- [DNAT先サーバーを、ファイルサーバーにする]()
+- [EC2を、DNATサーバーにする]()
+- [ローカルから、EC2経由で、目的地のファイルを覗く]()
+
 
 # ②-1 Resource Connectorイメージのダウンロード
 
@@ -281,3 +287,135 @@ SSHできた
 ```
 ubuntu@ip-172-31-0-137:~$ 
 ```
+
+# DNAT先サーバーを、ファイルサーバーにする
+
+以下のように、EC2経由で、目的地のファイルを覗きたい
+```
+ローカル -> DNAT(EC2) -> 目的地(ファイルサーバ)
+```
+
+VMがあれば、サンバを入れる
+```
+sudo apt update
+sudo apt install -y samba
+mkdir ~/test_share
+chmod 777 ~/test_share ※ゲストユーザーに好き勝手させるため、777
+chmod 755 /home/ubuntu ※デフォだと750なので、ゲストユーザーが通過できない
+sudo bash -c 'cat << EOF >> /etc/samba/smb.conf
+[test]
+   path = /home/ubuntu/test_share
+   read only = no
+   guest ok = yes
+EOF'
+sudo systemctl restart smbd
+
+touch aaa
+```
+
+
+
+# EC2を、DNATサーバーにする
+
+iptables-persistent をインストールすると、netfilter-persistentも入る
+```
+ubuntu@test1:~$ sudo apt update
+ubuntu@test1:~$ sudo apt install -y iptables-persistent 
+ubuntu@test1:~$ dpkg -l | grep persistent
+ii  iptables-persistent             1.0.20                                  all          boot-time loader for netfilter rules, iptables plugin
+ii  netfilter-persistent            1.0.20                                  all          boot-time loader for netfilter configuration
+```
+
+<img width="1162" height="515" alt="image" src="https://github.com/user-attachments/assets/296f1e9b-24b9-44e3-b3b6-46e2b4bd6c29" />
+
+上記で、自動でファイル作るが、今ルールないので、空である
+
+```
+ubuntu@test1:/etc/iptables$ cat rules.v4
+ubuntu@test1:/etc/iptables$ cat rules.v6
+ubuntu@test1:/etc/iptables$ 
+```
+
+DNATの設定を入れる
+```
+ubuntu@test1:/etc/iptables$ cat rules.v4
+# =============================================================
+# ネットワークアドレス変換 (NAT) 設定
+# 目的: EC2への通信を、目的地へ「転送」する
+# =============================================================
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+
+# 1. [外からの通信] Mac等が「EC2」の445番(SMB)に送ったパケットを、中継先の「目的地」へ書き換える
+-A PREROUTING -d <<EC2のグローバルIP>> -p tcp --dport 445 -j DNAT --to-destination <<目的地グローバルIP>>:445
+
+# 2. [自分からの通信] EC2自身が「EC2」にアクセスした場合も、中継先の「目的地」へ飛ばす
+# -A OUTPUT -d <<EC2のグローバルIP>> -p tcp --dport 445 -j DNAT --to-destination <<目的地グローバルIP>>:445
+
+# 3. [帰り道の確保] 目的地へ送る際、差出人をEC2に化かす (MASQUERADE)
+# これにより、目的地からの返信が必ずEC2を経由してMacに戻るようになる
+-A POSTROUTING -d <<目的地グローバルIP>> -p tcp --dport 445 -j MASQUERADE
+
+COMMIT
+
+# =============================================================
+# パケットフィルタリング設定
+# 目的: 転送(FORWARD)の「通行許可」を出す
+# =============================================================
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+
+# 4. [通行許可] 目的地の445番に向かう「通りすがり」のパケットを許可する
+-A FORWARD -d <<目的地グローバルIP>> -p tcp --dport 445 -j ACCEPT
+
+# 5. [接続維持] すでに許可された通信の「続きのパケット」は無条件で通す (顔パス設定)
+-A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+COMMIT
+ubuntu@test1:/etc/iptables$ 
+```
+
+
+```
+ubuntu@test1:/etc/iptables$ sudo iptables-restore --test /etc/iptables/rules.v4
+ubuntu@test1:/etc/iptables$ sudo service netfilter-persistent reload 
+ * Loading netfilter rules...                                                                                                                                      run-parts: executing /usr/share/netfilter-persistent/plugins.d/15-ip4tables start
+run-parts: executing /usr/share/netfilter-persistent/plugins.d/25-ip6tables start
+                                                                                                                                                            [ OK ]
+ubuntu@test1:/etc/iptables$ sudo iptables -nvL
+Chain INPUT (policy ACCEPT 901 packets, 62980 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain FORWARD (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     6    --  *      *       0.0.0.0/0            <<目的地のグローバルIP>>        tcp dpt:445
+    0     0 ACCEPT     0    --  *      *       0.0.0.0/0            0.0.0.0/0            state RELATED,ESTABLISHED
+
+Chain OUTPUT (policy ACCEPT 453 packets, 40408 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+ubuntu@test1:/etc/iptables$
+```
+
+DNATを有効化する
+```
+ubuntu@test1:/etc/iptables$ sudo vi /etc/sysctl.conf
+net.ipv4.ip_forward=1    -> この行をコメントアウトする
+```
+設定反映
+```
+ubuntu@test1:/etc/iptables$ sudo sysctl -p
+net.ipv4.ip_forward = 1
+```
+ローカルから、EC2に445が通るようになったか確認
+```
+nc -vz EC2のグローバルIP 445
+```
+
+# ローカルから、EC2経由で、目的地のファイルを覗く
+
+EC2のパブリックIP宛に、目的地のファイルを要求してみる
